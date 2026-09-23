@@ -1,0 +1,3 @@
+[console_scripts]
+ios-location = ios_location_controller.cli:main
+ios-location-map = ios_location_controller.web:main

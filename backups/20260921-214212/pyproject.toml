@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ios-location-controller"
+version = "0.1.0"
+description = "Windows controller for iPhone location simulation in owned/test devices"
+requires-python = ">=3.11"
+dependencies = ["pymobiledevice3>=4.0.0"]
+
+[project.scripts]
+ios-location = "ios_location_controller.cli:main"
+ios-location-map = "ios_location_controller.web:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
