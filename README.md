@@ -4,7 +4,10 @@
 
 ## 启动
 
-入口为 `start-map.cmd`，网页地址 `http://127.0.0.1:8765`。
+- **Windows**：入口为 `start-map.cmd`（或运行 `start-map.ps1`）
+- **Linux**：入口为 `./start-map.sh`（停止服务使用 `./stop-server.sh`）
+
+网页地址 `http://127.0.0.1:8765`。
 启动脚本检查服务健康状态，不会重复启动占用同一端口的进程。
 Python 环境：`.venv`，Python 3.11+，`pymobiledevice3 >=11.15.5,<12`。
 
@@ -48,7 +51,9 @@ GPX 支持 trkpt 和 rtept，最多 10000 节点、2 MB。大轨迹抽样显示�
 
 ## 连接要求
 
-需要支持数据传输的 USB 线、Apple Mobile Device Support、已配对且启用开发者模式的 iPhone。
+需要支持数据传输的 USB 线、已配对且启用开发者模式的 iPhone。
+- **Windows**：需要 Apple Mobile Device Support。
+- **Linux**：需要运行系统守护进程 `usbmuxd`（如 `sudo systemctl start usbmuxd`）以及 `libimobiledevice`。
 iOS 17.4+ 默认通过 `PreferredRsdTunnel` 建立进程内 RSD 隧道，无需管理员权限或独立隧道进程。
 iOS 17.0–17.3 的隧道支持依赖平台；该版本未在此项目实机验证。
 旧 iOS 自动选择 USB lockdown；同样未做实机兼容性覆盖。
@@ -60,9 +65,15 @@ Leaflet JS/CSS 随项目本地提供；只有 OpenStreetMap 底图需要联网�
 
 ## 验证
 
+Windows:
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe tests/browser_smoke.py
+```
+
+Linux:
+```bash
+./.venv/bin/python -m pytest -q
 ```
 
 浏览器测试依赖 Playwright 与 Microsoft Edge；录屏依赖 Playwright FFmpeg。
