@@ -95,10 +95,12 @@ function controls() {
   $('undo').disabled = busy || !draft.length; $('clear').disabled = busy || !draft.length;
   $('export').disabled = busy || draft.length < 2;
   $('use-route').disabled = busy || draft.length < 2 || playing || paused;
-  $('connect').disabled = busy || !!status?.connected || !status?.devices?.length;
+  $('connect').disabled = busy || !!status?.connected || ($('transport').value === 'auto' && !$('devices').value);
+  $('connection-options').disabled = busy || !!status?.connected;
   $('disconnect').disabled = busy || !status?.connected;
   $('devices').disabled = busy || !!status?.connected;
   $('player-import').disabled = busy || playing || paused;
+  $('clear-loaded-route').disabled = busy || !loaded.length;
   $('start').disabled = busy || playing || !status?.connected || loaded.length < 2;
   $('start').textContent = paused ? '继续移动' : '开始移动';
   $('pause').disabled = busy || !playing;
@@ -131,12 +133,13 @@ function renderStatus(data) {
     (!status?.connected || !status.current || status.udid !== data.udid);
   status = data;
   $('service').textContent = '本地服务已连接';
-  const key = JSON.stringify(data.devices);
+  const devices = data.devices.filter(d => (d.platform || 'ios') === $('platform').value);
+  const key = JSON.stringify(devices) + $('platform').value;
   if (key !== lastDeviceKey) {
     const previous = $('devices').value; $('devices').replaceChildren();
-    data.devices.forEach(d => $('devices').add(new Option(`${d.udid} · ${d.type}`, d.udid)));
-    if (!data.devices.length) $('devices').add(new Option('未检测到 USB 手机', ''));
-    else if (data.devices.some(d=>d.udid===previous)) $('devices').value=previous;
+    devices.forEach(d => $('devices').add(new Option(`${d.udid} · ${d.type}`, d.udid)));
+    if (!devices.length) $('devices').add(new Option('未发现设备，可选择无线地址连接', ''));
+    else if (devices.some(d=>d.udid===previous)) $('devices').value=previous;
     lastDeviceKey=key;
   }
   $('device-state').textContent = data.connected ? '定位服务已连接' : data.state === 'connecting' ? '正在建立定位连接…' : '尚未连接定位服务';
@@ -199,6 +202,10 @@ $('undo').onclick=()=>{draft.pop();edited();}; $('clear').onclick=()=>{draft=[];
 $('add-coordinate').onclick=()=>operation('添加节点…',async()=>addNode(Number($('node-lat').value),Number($('node-lng').value)));
 $('export').onclick=exportRoute;
 $('use-route').onclick=()=>operation('载入路线…',()=>uploadRoute(draft,$('route-name').value||'Route'));
+$('clear-loaded-route').onclick=()=>operation('正在清空已载入路线…',async()=>{
+  renderStatus(await api('clear-route',{}));
+  message('已清空回放路线并停止模拟定位；编辑草稿未受影响。','success');
+});
 for (const target of ['editor','player']) {
   $(`${target}-import`).onclick=()=>$(`${target}-file`).click();
   $(`${target}-file`).onchange=e=>{const file=e.target.files[0]; e.target.value=''; operation('解析 GPX…',()=>importFile(file,target));};
@@ -210,7 +217,38 @@ $('place-search').onclick=()=>operation('搜索地点…',async()=>{const query=
 $('place-query').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('place-search').click();}};
 $('place-results').onchange=()=>{const p=placeResults[$('place-results').selectedIndex];if(p){map.setView([p.lat,p.lng],16,{animate:false});}controls();};
 $('place-switch').onclick=()=>operation('切换手机定位…',async()=>{const p=placeResults[$('place-results').selectedIndex];if(!p)throw new Error('请选择搜索结果');renderStatus(await api('position',{lat:p.lat,lng:p.lng}));locatePhone();message(`已切换到：${p.name}`,'success');});
-$('connect').onclick=()=>operation('正在建立手机定位连接，最长约 30 秒…',async()=>{renderStatus(await api('connect',{udid:$('devices').value}));message(status.current?'定位服务已连接，起点已发送。':'定位服务已连接，请导入路线。','success');});
+function connectionOptions() {
+  const wireless = $('transport').value === 'wireless', android = $('platform').value === 'android';
+  $('ios-wireless').hidden = !wireless || android;
+  $('android-wireless').hidden = !wireless || !android;
+  $('devices').hidden = wireless;
+  $('connection-help').textContent = android
+    ? '需要 ADB 和已授权设备；自动检测系统测试定位接口（建议 Android 12+）。无需 root/APK，不支持的 ROM 会明确报错。'
+    : 'iPhone 需要已配对且开发者服务可用。无线地址模式连接现有 RSD 隧道。';
+  if (status) renderStatus(status);
+  controls();
+}
+$('platform').onchange = connectionOptions;
+$('transport').onchange = connectionOptions;
+$('devices').onchange = controls;
+$('pair-device').onclick = () => operation('正在配对 Android…', async () => {
+  const code = $('pair-code').value; $('pair-code').value = '';
+  await api('pair', {address:$('pair-address').value.trim(), code});
+  message('配对成功，请使用无线调试连接地址连接手机。', 'success');
+});
+$('connect').onclick=()=>operation('正在建立手机定位连接…',async()=>{
+  const data = {platform:$('platform').value};
+  if ($('transport').value === 'auto') data.udid = $('devices').value;
+  else if (data.platform === 'android') {
+    data.address = $('adb-address').value.trim();
+    if (!data.address) throw new Error('请输入无线调试连接地址');
+  } else {
+    data.rsd_host = $('rsd-host').value.trim(); data.rsd_port = Number($('rsd-port').value);
+    if (!data.rsd_host || !data.rsd_port) throw new Error('请输入 RSD 地址和端口');
+  }
+  renderStatus(await api('connect',data));
+  message(status.current?'定位服务已连接，起点已发送。':'定位服务已连接，请导入路线。','success');
+});
 $('start').onclick=()=>{
   if (!$('settings').reportValidity()) return;
   operation('启动回放…',async()=>{await api('settings',settings());renderStatus(await api('start',{}));message('开始发送模拟位置。','success');});

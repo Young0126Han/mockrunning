@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Route Studio · iPhone 定位控制</title>
+  <title>Route Studio · iOS / Android 定位控制</title>
   <link rel="stylesheet" href="/static/leaflet.css"><link rel="stylesheet" href="/static/app.css">
   <script defer src="/static/leaflet.js"></script><script defer src="/static/app.js"></script>
 </head>
@@ -25,9 +25,16 @@
         <ol id="nodes" aria-label="运行节点"></ol>
       </section>
       <section id="player-panel" hidden>
-        <div class="section-heading"><span>02 / DEVICE PLAYBACK</span><h2>在 iPhone 上回放</h2><p>连接手机并导入数据后，自动设置到起点。只有点击开始才会沿路线移动。</p></div>
+        <div class="section-heading"><span>02 / DEVICE PLAYBACK</span><h2>在手机上回放</h2><p>支持 iOS / Android，USB / 无线。连接手机并导入数据后，自动设置到起点。</p></div>
+        <fieldset id="connection-options"><legend>连接方式</legend>
+          <label>平台<select id="platform"><option value="ios">iPhone / iOS</option><option value="android">Android</option></select></label>
+          <label>传输<select id="transport"><option value="auto">已发现设备（USB / Wi-Fi）</option><option value="wireless">无线地址</option></select></label>
+          <div id="ios-wireless" hidden><label>RSD IP 地址<input id="rsd-host" placeholder="fd00::1" maxlength="100"></label><label>RSD 端口<input id="rsd-port" type="number" min="1" max="65535"></label><small>连接已建立的可信 Wi-Fi RSD 隧道；隧道须持续运行。首次配对通常需要 USB。</small></div>
+          <div id="android-wireless" hidden><label>无线调试地址<input id="adb-address" placeholder="192.168.1.20:37123" maxlength="100"></label><details><summary>首次无线配对（Android 11+）</summary><label>配对地址<input id="pair-address" placeholder="192.168.1.20:配对端口" maxlength="100"></label><label>六位配对码<input id="pair-code" type="password" inputmode="numeric" autocomplete="off" maxlength="6"></label><button id="pair-device" type="button">配对设备</button><small>配对端口与连接端口不同，配对码不会保存。</small></details></div>
+          <p class="hint" id="connection-help">iPhone 需要已信任电脑且开发者服务可用。</p>
+        </fieldset>
         <div class="device-card"><b id="device-state">尚未连接定位服务</b><select id="devices" aria-label="选择手机"><option value="">正在检测 USB 设备…</option></select><div class="row"><button id="connect" class="primary">连接手机</button><button id="disconnect">断开连接</button></div><small id="device-help">USB 发现与定位服务连接是两个不同状态。</small></div>
-        <div class="row"><button id="player-import">导入 GPX 数据</button><span id="loaded-route">未载入路线</span></div><input type="file" id="player-file" accept=".gpx" hidden>
+        <div class="row"><button id="player-import">导入 GPX 数据</button><span id="loaded-route">未载入路线</span></div><button id="clear-loaded-route" class="danger wide" type="button">清空已载入路线</button><input type="file" id="player-file" accept=".gpx" hidden>
         <section class="place-card"><b>输入地点并切换定位</b><div class="row"><input id="place-query" placeholder="例如：上海人民广场" maxlength="200"><button id="place-search">搜索</button></div><select id="place-results" aria-label="地点搜索结果"><option value="">搜索结果会显示在这里</option></select><button id="place-switch" class="primary wide" disabled>切换到选中地点</button><small>搜索结果来自 OpenStreetMap。切换不会修改路线；运行路线时请先暂停或停止。</small></section>
         <form id="settings"><fieldset id="parameters"><legend>运动参数</legend>
           <div class="row"><label>速度 km/h<input name="speed_kmh" id="speed" type="number" min="0.1" max="300" step="any" value="5" required></label><label>配速 min/km<input id="pace" type="number" min="0.2" max="600" step="any" value="12" required></label></div>

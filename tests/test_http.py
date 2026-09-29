@@ -29,6 +29,16 @@ def test_bad_import_and_origin(server):
     with pytest.raises(HTTPError) as exc: urlopen(request)
     assert exc.value.code==403
 
+def test_foreign_host_is_rejected_for_all_methods(server):
+    for path in ['/api/status', '/api/health', '/', '/static/app.js']:
+        request=Request(server+path,headers={'Host':'attacker.invalid'})
+        with pytest.raises(HTTPError) as exc: urlopen(request)
+        assert exc.value.code==403
+    request=Request(server+'/api/import',data=b'{}',headers={
+        'Content-Type':'application/json','Host':'attacker.invalid'})
+    with pytest.raises(HTTPError) as exc: urlopen(request)
+    assert exc.value.code==403
+
 def test_gpx_import(server):
     body=json.dumps({'gpx':'<gpx><trk><trkseg><trkpt lat="31" lon="121"/><trkpt lat="32" lon="121"/></trkseg></trk></gpx>'}).encode()
     result=json.load(urlopen(Request(server+'/api/import',data=body,headers={'Content-Type':'application/json'})))

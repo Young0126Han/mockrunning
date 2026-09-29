@@ -42,3 +42,85 @@ def test_lifecycle_and_persistence(tmp_path):
         assert restored.status()['state']=='idle'
         assert restored.status()['current'] is None
     finally: restored.close()
+
+
+def test_platform_options_and_failed_cleanup(tmp_path):
+    options = []
+
+    class Device(FakeDevice):
+        fail_close = False
+
+        def __init__(self, **kwargs):
+            options.append(kwargs)
+            self.udid = 'wifi-phone'
+
+        async def close(self):
+            if self.fail_close:
+                raise RuntimeError('offline during cleanup')
+
+    controller = PlaybackController(tmp_path/'wireless.json', Device)
+    try:
+        result = controller.call('connect', {'platform':'android', 'address':'192.168.1.2:5555'})
+        assert result['platform'] == 'android'
+        assert result['udid'] == 'wifi-phone'
+        assert options[0]['address'] == '192.168.1.2:5555'
+        controller.device.fail_close = True
+        with pytest.raises(RuntimeError, match='cleanup'):
+            controller.call('disconnect')
+        assert controller.status()['connected']
+        controller.device.fail_close = False
+        controller.call('disconnect')
+        controller.call('connect', {'platform':'ios', 'rsd_host':'fd00::1', 'rsd_port':1234})
+        assert options[-1]['rsd_host'] == 'fd00::1'
+        assert options[-1]['rsd_port'] == 1234
+        assert controller.status()['connected']
+    finally:
+        controller.close()
+
+
+def test_clear_loaded_route_stops_and_persists(tmp_path):
+    class Device(FakeDevice):
+        clears = 0
+
+        async def clear(self):
+            self.clears += 1
+
+    path = tmp_path / 'session.json'
+    controller = PlaybackController(path, Device)
+    points = [{'lat':31.23,'lng':121.47}, {'lat':31.24,'lng':121.48}]
+    try:
+        controller.call('route', {'name':'saved', 'points':points})
+        controller.call('connect')
+        controller.call('start')
+        result = controller.call('clear-route')
+        assert result['route'] == {'name':'', 'points':[]}
+        assert result['state'] == 'ready'
+        assert result['current'] is None
+        assert result['total_m'] == 0
+        assert controller.device.clears == 1
+        with pytest.raises(ValueError):
+            controller.call('start')
+    finally:
+        controller.close()
+    restored = PlaybackController(path, Device)
+    try:
+        assert restored.status()['route'] == {'name':'', 'points':[]}
+    finally:
+        restored.close()
+
+
+def test_clear_loaded_route_keeps_route_on_device_failure(tmp_path):
+    class Device(FakeDevice):
+        async def clear(self):
+            raise RuntimeError('device offline')
+
+    controller = PlaybackController(tmp_path/'session.json', Device)
+    points = [{'lat':31.23,'lng':121.47}, {'lat':31.24,'lng':121.48}]
+    try:
+        controller.call('route', {'name':'saved', 'points':points})
+        controller.call('connect')
+        with pytest.raises(RuntimeError, match='device offline'):
+            controller.call('clear-route')
+        assert controller.status()['route']['points'] == points
+    finally:
+        controller.close()

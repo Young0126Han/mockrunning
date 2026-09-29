@@ -70,6 +70,10 @@ class LocationDevice:
             raise
         log.info("Connected to iPhone (%s)", mode)
 
+        if self.rsd_host is not None:
+            self.wda_error = "External RSD: real GPS readback is unavailable"
+            return
+
         # WDA is optional: the DVT simulation path must remain usable when it is absent.
         try:
             self._wda_process = subprocess.Popen(
@@ -85,6 +89,8 @@ class LocationDevice:
             self._stop_wda()
 
     async def read_location(self) -> dict:
+        if self.rsd_host is not None:
+            raise RuntimeError("External RSD: real GPS readback is unavailable")
         def request():
             with urllib.request.urlopen("http://127.0.0.1:8100/wda/device/location", timeout=3) as response:
                 data = json.loads(response.read().decode("utf-8"))

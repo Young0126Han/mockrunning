@@ -5,7 +5,8 @@ from dataclasses import asdict
 import json
 import threading
 from pathlib import Path
-from .device import LocationDevice
+from .connections import create_device
+from .android import discover as discover_android, pair
 from .gpx import Point
 from .motion import Motion, Settings, route_points
 
@@ -13,7 +14,7 @@ from .motion import Motion, Settings, route_points
 class PlaybackController:
     """Serialize all device I/O and state transitions on one owned event loop."""
 
-    def __init__(self, state_path: Path, device_factory=LocationDevice):
+    def __init__(self, state_path: Path, device_factory=create_device):
         self.path = state_path
         self.factory = device_factory
         self.points = []
@@ -29,6 +30,8 @@ class PlaybackController:
         self.devices = []
         self.discovery_error = None
         self.udid = None
+        self.platform = "ios"
+        self.external_rsd = False
         self.real_current = None
         self.wda_error = None
         self._load()
@@ -79,6 +82,7 @@ class PlaybackController:
 
     def _status(self):
         return {"state": self.state, "connected": self.device is not None, "udid": self.udid,
+                "platform": self.platform,
                 "devices": self.devices, "discovery_error": self.discovery_error, "error": self.error,
                 "route": {"name": self.name, "points": self._coordinates()},
                 "real_current": self.real_current, "wda_error": self.wda_error,
@@ -94,12 +98,13 @@ class PlaybackController:
         self.current = {"lat": point.latitude, "lng": point.longitude}
 
     async def _close_device(self):
-        device, self.device = self.device, None
+        device = self.device
+        if device:
+            await asyncio.wait_for(device.close(), 10)
+        self.device = None
         self.udid = None
         self.current = None
         self.speed = 0
-        if device:
-            await asyncio.wait_for(device.close(), 10)
 
     async def _action(self, action, data):
         if action == "status":
@@ -116,6 +121,18 @@ class PlaybackController:
                     if self.device:
                         await self._send(points[0])
                     self.state = "ready" if self.device else "idle"
+                elif action == "clear-route":
+                    # Clear the simulated position before discarding the active route.
+                    if self.device:
+                        await asyncio.wait_for(self.device.clear(), 8)
+                    self.points = []
+                    self.name = ""
+                    self.motion = None
+                    self.current = None
+                    self.speed = 0
+                    self.pending_time = 0.0
+                    self.state = "ready" if self.device else "idle"
+                    self._save()
                 elif action == "settings":
                     if self.state == "playing":
                         raise ValueError("Pause before changing parameters")
@@ -123,19 +140,33 @@ class PlaybackController:
                     self.pending_time = 0.0
                     self.last_tick = self.loop.time()
                     self._save()
+                elif action == "pair":
+                    if self.device:
+                        raise ValueError("Disconnect before pairing another device")
+                    await pair(data.get("address"), data.get("code"))
                 elif action == "connect":
                     if self.state in ("playing", "paused"):
                         raise ValueError("Stop before changing the device")
                     if not self.device:
+                        platform = data.get("platform", "ios")
+                        device = self.factory(platform=platform, udid=data.get("udid") or None,
+                                              rsd_host=data.get("rsd_host"), rsd_port=data.get("rsd_port"),
+                                              address=data.get("address"))
                         self.state = "connecting"
-                        device = self.factory(udid=data.get("udid") or None)
+                        self.platform = platform
+                        self.device = device
                         try:
                             await asyncio.wait_for(device.connect(), 25)
                         except BaseException:
+                            # Keep the adapter if cleanup fails, so disconnect can retry.
                             await asyncio.wait_for(device.close(), 8)
+                            self.device = None
+                            self.state = "error"
                             raise
                         self.device = device
-                        self.udid = data.get("udid") or (self.devices[0]["udid"] if self.devices else None)
+                        self.platform = platform
+                        self.external_rsd = bool(data.get("rsd_host"))
+                        self.udid = getattr(device, "udid", None) or data.get("udid")
                         try:
                             self.real_current = await device.read_location()
                             self.wda_error = None
@@ -147,7 +178,7 @@ class PlaybackController:
                     self.state = "ready"
                 elif action == "start":
                     if not self.device or not self.points:
-                        raise ValueError("Connect an iPhone and import a route first")
+                        raise ValueError("Connect a phone and import a route first")
                     if self.state != "playing":
                         if self.state != "paused":
                             self.motion = Motion(self.points, self.settings)
@@ -159,7 +190,7 @@ class PlaybackController:
                     if self.state == "playing":
                         raise ValueError("Pause or stop playback before switching location")
                     if not self.device:
-                        raise ValueError("Connect an iPhone first")
+                        raise ValueError("Connect a phone first")
                     lat, lng = float(data.get("lat")), float(data.get("lng"))
                     if not -85 <= lat <= 85 or not -180 <= lng <= 180:
                         raise ValueError("Invalid coordinates")
@@ -222,21 +253,22 @@ class PlaybackController:
                         pass
 
     async def _discover(self):
-        from pymobiledevice3.usbmux import list_devices
         while True:
+            devices, errors = [], []
             try:
+                from pymobiledevice3.usbmux import list_devices
                 found = await asyncio.wait_for(list_devices(), 5)
-                self.devices = [{"udid": str(d.serial), "type": str(d.connection_type)} for d in found]
-                self.discovery_error = None
-                if self.device and self.udid and self.udid not in {d["udid"] for d in self.devices}:
-                    async with self.lock:
-                        self.state, self.error = "error", "iPhone disconnected"
-                        try:
-                            await self._close_device()
-                        except Exception:
-                            pass
+                devices.extend({"udid": str(d.serial), "platform": "ios", "type": str(d.connection_type)} for d in found)
             except Exception as exc:
-                self.discovery_error = str(exc) or type(exc).__name__
+                errors.append("iOS: " + (str(exc) or type(exc).__name__))
+            try:
+                devices.extend(await asyncio.wait_for(discover_android(), 5))
+            except Exception as exc:
+                errors.append("Android: " + (str(exc) or type(exc).__name__))
+            self.devices = devices
+            self.discovery_error = "; ".join(errors) or None
+            # Discovery is advisory: external RSD/Wi-Fi devices may not be in usbmux.
+            # Actual device writes detect transport failure without false disconnects.
             await asyncio.sleep(3)
 
     def close(self):

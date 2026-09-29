@@ -30,6 +30,10 @@ def parse_gpx(text):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def host_allowed(self):
+        host = self.headers.get("Host", "").partition(":")[0].lower()
+        return host in ("localhost", "127.0.0.1")
+
     def send_data(self, body, content_type, code=200):
         self.send_response(code)
         self.send_header("Content-Type", content_type)
@@ -43,6 +47,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_data(json.dumps(data, ensure_ascii=False, allow_nan=False).encode(), "application/json; charset=utf-8", code)
 
     def do_GET(self):
+        if not self.host_allowed():
+            self.json({"error": "Host denied"}, 403)
+            return
         path = urlparse(self.path).path
         try:
             if path == "/api/status":
@@ -67,8 +74,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             # Reject cross-site browser requests; this service controls a local device.
             origin = self.headers.get("Origin")
-            host = self.headers.get("Host", "").split(":")[0]
-            if host not in ("localhost", "127.0.0.1"):
+            if not self.host_allowed():
                 self.json({"error": "Host denied"}, 403)
                 return
             if origin and origin != "http://" + self.headers.get("Host", ""):
@@ -97,7 +103,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"results": [{"name": str(item.get("display_name", ""))[:300],
                                          "lat": float(item["lat"]), "lng": float(item["lon"])}
                                         for item in results]})
-            elif action in {"route", "settings", "connect", "disconnect", "start", "pause", "stop", "position"}:
+            elif action in {"route", "clear-route", "settings", "connect", "pair", "disconnect", "start", "pause", "stop", "position"}:
                 self.json(self.server.controller.call(action, data))
             else:
                 self.json({"error": "Not found"}, 404)

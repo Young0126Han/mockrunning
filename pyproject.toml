@@ -5,9 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ios-location-controller"
 version = "0.2.0"
-description = "Windows controller for iPhone location simulation in owned/test devices"
+description = "Local iOS and Android test-device location controller with USB and wireless transports"
 requires-python = ">=3.11"
 dependencies = ["pymobiledevice3>=11.15.5,<12"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10", "playwright>=1.40,<2"]
 
 [project.scripts]
 ios-location = "ios_location_controller.cli:main"
