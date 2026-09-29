@@ -63,6 +63,7 @@ ios-location play routes/sample.gpx --rsd-host fd00::1 --rsd-port 54321 --speed-
 
 ## 验证
 
+Windows:
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe tests/browser_connections.py
